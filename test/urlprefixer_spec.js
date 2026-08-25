@@ -1,15 +1,16 @@
 "use strict";
 
-var URL = require("url"),
-  test = require("tap").test,
-  _ = require("lodash"),
-  concat = require("concat-stream");
+const assert = require("node:assert/strict");
+const { test } = require("node:test");
+const URL = require("url");
+const _ = require("lodash");
+const concat = require("concat-stream");
 
-var urlPrefix = require("../lib/url-prefixer.js")({
+const urlPrefix = require("../lib/url-prefixer.js")({
   prefix: "/proxy/",
 });
 
-var testLines = {
+const testLines = {
   // source => expected result
 
   // xmlns items first two should NOT get rewritten
@@ -174,59 +175,56 @@ var testLines = {
   '<button formaction="mytarget.php">': '<button formaction="mytarget.php">',
 };
 
-var testUri = URL.parse("http://localhost:8081/");
-var testPrefix = "/proxy/";
+const testUri = URL.parse("http://localhost:8081/");
+const testPrefix = "/proxy/";
 
-test("should rewrite (or not rewrite) various strings correctly", function (t) {
+function createStreamPromise(start, end) {
+  return new Promise((resolve, reject) => {
+    const stream = urlPrefix.createStream(testUri);
+    stream.setEncoding("utf8");
+    stream.pipe(
+      concat(function (actual) {
+        resolve(actual);
+      })
+    );
+    stream.on("error", reject);
+    stream.write(start);
+    stream.end(end);
+  });
+}
+
+test("should rewrite (or not rewrite) various strings correctly", () => {
   _.each(testLines, function (expected, source) {
-    var actual = urlPrefix.rewriteUrls(source, testUri, testPrefix);
-    t.equal(
+    const actual = urlPrefix.rewriteUrls(source, testUri, testPrefix);
+    assert.strictEqual(
       actual,
       expected,
       "Should rewrite '" + source + "' to '" + expected + '"'
     );
   });
-  t.end();
 });
 
-test("should correctly handle packets split at different locations", function (t) {
-  var fullSource = _.keys(testLines).join("\n"),
-    expected = _.values(testLines).join("\n");
+test("should correctly handle packets split at different locations", async () => {
+  const fullSource = _.keys(testLines).join("\n");
+  const expected = _.values(testLines).join("\n");
 
-  function createSubTest(start, end) {
-    // this causes the following warning:
-    // (node) warning: Recursive process.nextTick detected. This will break in the next version of node. Please use setImmediate for recursive deferral.
-    //t.test("Should handle breaks between '" + start.substr(-20) + "' and '" + end.substr(0,20) + "' correctly", function(t) {
-    var stream = urlPrefix.createStream(testUri);
-    stream.setEncoding("utf8");
-    stream.pipe(
-      concat(function (actual) {
-        t.equal(
-          actual,
-          expected,
-          "Should handle chunk breaks between '" +
-            start.substr(-20) +
-            "' and '" +
-            end.substr(0, 20) +
-            "' correctly"
-        );
-        if (actual != expected) throw "stopping early";
-      })
-    );
-    stream.write(start);
-    stream.end(end);
-    //});
-  }
-
-  t.plan(fullSource.length);
   for (
-    var splitLocation = 0, l = fullSource.length;
-    splitLocation < l;
+    let splitLocation = 0;
+    splitLocation < fullSource.length;
     splitLocation++
   ) {
-    var start = fullSource.substr(0, splitLocation);
-    var end = fullSource.substr(splitLocation);
-    createSubTest(start, end);
+    const start = fullSource.substr(0, splitLocation);
+    const end = fullSource.substr(splitLocation);
+    const actual = await createStreamPromise(start, end);
+    assert.strictEqual(
+      actual,
+      expected,
+      "Should handle chunk breaks between '" +
+        start.substr(-20) +
+        "' and '" +
+        end.substr(0, 20) +
+        "' correctly"
+    );
   }
 });
 
